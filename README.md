@@ -1,4 +1,4 @@
-# RAG + Scratchpad: Semantic Chunking & Embedding Visualization
+# RAG Scratchpad: Semantic Chunking & Embedding Visualization
 
 A hands-on Jupyter notebook that walks through the core building blocks of a Retrieval-Augmented Generation (RAG) pipeline — from raw document ingestion through intelligent chunking, embedding generation, semantic clustering, and interactive 3D visualization.
 
