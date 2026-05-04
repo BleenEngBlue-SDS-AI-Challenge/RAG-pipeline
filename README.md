@@ -78,7 +78,7 @@ pip install openai python-dotenv numpy matplotlib umap-learn scikit-learn plotly
    ```
 3. Launch Jupyter and open the notebook:
    ```bash
-   jupyter notebook RAG-plus-scratchpad.ipynb
+   jupyter notebook RAG-scratchpad.ipynb
    ```
 4. Run all cells top to bottom.
 
