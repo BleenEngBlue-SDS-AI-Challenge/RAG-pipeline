@@ -65,13 +65,13 @@ embeddings = [item.embedding for item in response.data]
 
 ```python
 # 2D — matplotlib scatter with per-point index labels
-reduced_2d = umap.UMAP(n_components=2, random_state=42).fit_transform(np.array(embeddings))
+reduced_2d = umap.UMAP(n_components=2, n_jobs=1).fit_transform(np.array(embeddings))
 
 # 3D — Plotly Scatter3d with one trace per cluster for a clean legend
-reduced_3d = umap.UMAP(n_components=3, random_state=42).fit_transform(np.array(embeddings))
+reduced_3d = umap.UMAP(n_components=3, n_jobs=1).fit_transform(np.array(embeddings))
 ```
 
-Fixed `random_state=42` ensures reproducible projections across runs.
+Fixed `n_jobs=1` ensures reproducible projections across runs.
 
 **KMeans clustering:**
 
