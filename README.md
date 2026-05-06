@@ -34,6 +34,14 @@ The pipeline was designed around a few decisions that tutorial implementations t
 
 **Embedding quality validation** happens before the vector store sees any data. UMAP combined with KMeans clustering provides a practical sanity check: if the document's topics are not meaningfully separable in vector space, retrieval quality will suffer regardless of how prompts are written. Applied to the Netflix Culture Memo, the pipeline surfaces a clean two-cluster separation — organizational principles vs. people and culture themes — visible in both the 2D matplotlib scatter and the interactive 3D Plotly projection.
 
+**2D UMAP projection** — static inspection of cluster separation with annotated chunk indices:
+
+![UMAP 2D Projection of Chunk Embeddings](UMAP_2D.png)
+
+**3D UMAP projection** — interactive Plotly view that surfaces structure obscured in 2D:
+
+![UMAP 3D Projection of Chunk Embeddings](UMAP_3D.png)
+
 **Cluster labeling** calls `gpt-4o-mini` with a structured system/user prompt, passing up to 10 chunks per cluster to stay within token limits. The task is short thematic summarization; the tradeoff favors low latency and cost over additional reasoning capacity. Output is post-processed with `textwrap.fill` and a terminal-width guard that safely falls back to 88 columns in notebook environments.
 
 The embedding structure is compatible with production vector databases — Pinecone, Weaviate, and pgvector — without modification.
