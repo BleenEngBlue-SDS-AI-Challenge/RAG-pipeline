@@ -1,102 +1,83 @@
-# RAG Scratchpad: Semantic Chunking & Embedding Visualization
+# RAG Pipeline — Semantic Chunking, Embedding & Cluster Visualization
 
-A hands-on Jupyter notebook that walks through the core building blocks of a Retrieval-Augmented Generation (RAG) pipeline — from raw document ingestion through intelligent chunking, embedding generation, semantic clustering, and interactive 3D visualization.
+**End-to-end retrieval-augmented generation (RAG) preprocessing · Python · OpenAI API · scikit-learn**
 
-The demo document is the [Netflix Culture Memo](https://jobs.netflix.com/culture) (June 2024).
+A retrieval-augmented generation (RAG) preprocessing pipeline covering document ingestion, boundary-aware chunking, dense vector embedding, unsupervised clustering, and large language model (LLM)-assisted interpretation — built with an emphasis on the decisions that production deployments actually require.
 
----
-
-## What This Notebook Does
-
-The notebook is structured as a linear, step-by-step pipeline:
-
-| Step | Description |
-|------|-------------|
-| **1. Setup** | Loads environment variables and initializes the OpenAI client |
-| **2. Load Document** | Ingests the Netflix Culture Memo as a raw text string |
-| **3. Chunk the Document** | Splits the text into overlapping chunks using natural language boundaries |
-| **4. Generate Embeddings** | Calls OpenAI's `text-embedding-3-small` model to produce vector embeddings for each chunk |
-| **5. Visualize in 2D** | Reduces embeddings to 2D with UMAP, clusters them with KMeans, and renders a static matplotlib scatter plot |
-| **5b. Describe Clusters** | Sends each cluster's chunks to `gpt-4o-mini` to generate a short thematic description |
-| **6. Visualize in 3D** | Renders an interactive, rotatable 3D Plotly scatter plot of the same embeddings |
+**Stack:** `text-embedding-3-small` · `gpt-4o-mini` · KMeans clustering · UMAP dimensionality reduction · Plotly 3D · vector databases (Pinecone / Weaviate / pgvector) · natural language processing (NLP) · semantic search · information retrieval
 
 ---
 
-## Chunking Strategy
+## Pipeline
 
-The custom `chunk_text()` function prioritizes natural language boundaries in this order:
-
-1. **Paragraph boundary** (`\n\n`)
-2. **Sentence boundary** (`". "`)
-3. **Word boundary** (`" "`)
-4. **Hard cut** at `max_size` characters (fallback)
-
-Small chunks below `min_size` are merged with adjacent chunks rather than emitted standalone. Chunks always begin at a word boundary — never mid-word.
-
-**Default parameters:**
-```python
-chunk_text(text, max_size=500, overlap=50, min_size=250)
-```
+| Step | Stage | Description |
+|------|-------|-------------|
+| 01 | **Ingest** | Load & normalize raw text from source document |
+| 02 | **Chunk** | Boundary-aware splitting with configurable overlap |
+| 03 | **Embed** | 1536-dim dense vectors via `text-embedding-3-small` |
+| 04 | **Cluster** | KMeans (k=2) on high-dimensional embeddings |
+| 05 | **Reduce** | UMAP → 2D/3D for visualization & inspection |
+| 06 | **Label** | `gpt-4o-mini` interprets each discovered cluster |
 
 ---
 
-## Embedding Visualization
+## Approach
 
-After generating embeddings, UMAP reduces the high-dimensional vectors to 2D (for a static plot) and 3D (for an interactive plot). KMeans (`k=2`) identifies two semantic clusters, which are color-coded and labeled by chunk index.
+The pipeline was designed around a few decisions that tutorial implementations tend to skip. Chunking snaps to natural language boundaries — paragraphs first, then sentences, then words — rather than cutting at a fixed character count. Chunks below a minimum size are merged with adjacent ones rather than emitted standalone, which reduces short-chunk retrieval noise at query time. A 50-character overlap ensures that context straddling a boundary is represented in both adjacent chunks.
 
-The 3D plot (shown below) reveals a clean separation between the two clusters, corresponding to distinct thematic groupings in the document — for example, people/culture topics vs. organizational principles.
+Before the vector store sees any data, Uniform Manifold Approximation and Projection (UMAP) combined with KMeans clustering provides a practical sanity check on embedding quality: if the document's topics aren't meaningfully separable in vector space, retrieval quality will suffer regardless of how the prompts are written. Applied to the Netflix Culture Memo, the pipeline surfaces a clean two-cluster separation — organizational principles vs. people and culture themes — which can be inspected in the interactive 3D projection.
 
-![UMAP 3D Projection of Chunk Embeddings](3D_Plot_Clean_Separation.png)
+Cluster labeling uses `gpt-4o-mini` rather than a larger model: the task is short summarization, and the tradeoff favors speed and cost over additional reasoning capacity. The embedding structure is compatible with production vector databases — Pinecone, Weaviate, and pgvector — without modification.
 
 ---
 
-## Requirements
+## Model & Tool Selection
 
-```
-openai
-python-dotenv
-numpy
-matplotlib
-umap-learn
-scikit-learn
-plotly
-```
+| Component | Choice | Reasoning |
+|-----------|--------|-----------|
+| Embeddings | `text-embedding-3-small` | 1536-dim, strong semantic fidelity at low cost — well-suited for retrieval at scale |
+| Cluster labeling | `gpt-4o-mini` | Short summarization task; low latency and cost without meaningful quality loss |
+| Dimensionality reduction | UMAP | Preserves local neighborhood structure better than PCA or t-SNE at this scale |
+| Clustering | KMeans (scikit-learn) | Interpretable and fast; appropriate for k=2 with known cluster count |
+| Visualization | Plotly (3D) | Interactive and rotatable — surfaces structure that 2D projections can obscure |
 
-Install all dependencies:
+---
+
+## Getting Started
+
+**1. Install dependencies**
+
 ```bash
-pip install openai python-dotenv numpy matplotlib umap-learn scikit-learn plotly
+pip install openai python-dotenv numpy umap-learn scikit-learn plotly
 ```
 
----
+**2. Configure API access**
 
-## Setup
+Create a `.env` file in the project root:
 
-1. Clone this repo and navigate to the project directory.
-2. Create a `.env` file in the project root with your OpenAI API key:
-   ```
-   OPENAI_API_KEY=your_key_here
-   ```
-3. Launch Jupyter and open the notebook:
-   ```bash
-   jupyter notebook RAG-scratchpad.ipynb
-   ```
-4. Run all cells top to bottom.
+```
+OPENAI_API_KEY=your_key_here
+```
 
----
+**3. Run the notebook**
 
-## Models Used
+```bash
+jupyter notebook RAG-scratchpad.ipynb
+```
 
-| Model | Purpose |
-|-------|---------|
-| `text-embedding-3-small` | Generates vector embeddings for each text chunk |
-| `gpt-4o-mini` | Describes the unifying theme of each semantic cluster |
+Execute all cells top to bottom.
 
 ---
 
-## Key Concepts Demonstrated
+## Relevant to
 
-- **Chunking with overlap** — avoids losing context at chunk boundaries
-- **Semantic embeddings** — dense vector representations that capture meaning, not just keywords
-- **Unsupervised clustering** — KMeans groups chunks by semantic similarity without labels
-- **Dimensionality reduction** — UMAP makes high-dimensional embedding spaces human-interpretable
-- **LLM-assisted interpretation** — using a language model to label and explain discovered clusters
+| Role | Applicable work |
+|------|----------------|
+| AI / Applied ML Engineer | Embedding pipeline, chunking heuristics, clustering, dimensionality reduction, visual evaluation of vector space structure |
+| AI Product Engineer | End-to-end RAG prototype on a real knowledge base; tradeoff decisions on chunk size, overlap, and retrieval granularity |
+| LLM / Agent Engineer | Structured multi-step pipeline with LLM calls at defined stages; model selection based on task requirements |
+| Solutions / Forward-Deployed | Corpus-agnostic pipeline; embedding and retrieval architecture adaptable to customer-specific deployments |
+
+---
+
+*Built for the [Super Data Science AI Challenge](https://www.skool.com/ai-challenge) · Knowledge base: [Netflix Culture Memo](https://jobs.netflix.com/culture)*
