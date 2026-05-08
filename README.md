@@ -1,19 +1,21 @@
-# RAG Pipeline — Semantic Chunking, Embedding & Cluster Visualization
+# RAG Pipeline — Chunking, Embedding, Clustering & Retrieval Chat
 
-> End-to-end RAG preprocessing pipeline with boundary-aware chunking, OpenAI embeddings, UMAP/KMeans clustering, 2D/3D visualization, and LLM-powered cluster labeling.
+> End-to-end RAG pipeline: boundary-aware chunking → OpenAI embeddings → UMAP/KMeans clustering → ChromaDB vector storage → Gradio chat interface with live retrieval.
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](https://www.python.org/)
-[![OpenAI](https://img.shields.io/badge/OpenAI-text--embedding--3--small%20%7C%20gpt--4o--mini-412991)](https://platform.openai.com/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-text--embedding--3--small%20%7C%20gpt--4.1--mini-412991)](https://platform.openai.com/)
+[![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector%20Store-orange)](https://www.trychroma.com/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-KMeans%20%7C%20PCA-F7931E)](https://scikit-learn.org/)
 [![UMAP](https://img.shields.io/badge/UMAP-Dimensionality%20Reduction-brightgreen)](https://umap-learn.readthedocs.io/)
+[![Gradio](https://img.shields.io/badge/Gradio-Chat%20Interface-ff7c00)](https://gradio.app/)
 
 ---
 
 ## What This Is
 
-A production-oriented RAG preprocessing pipeline built for the [SDS AI Challenge](https://www.skool.com/ai-challenge). It takes a raw document, chunks it with boundary awareness, embeds it via OpenAI, validates embedding structure through clustering and 2D/3D visualization, and uses `gpt-4o-mini` to label each discovered topic cluster.
+A production-oriented RAG pipeline built for the [SDS AI Challenge](https://www.skool.com/ai-challenge). It takes a raw document through the full retrieval-augmented generation stack: boundary-aware chunking, OpenAI embeddings, UMAP + KMeans clustering with 2D/3D visualization, LLM-powered cluster labeling, persistent vector storage in ChromaDB, and a Gradio chat interface that answers questions by retrieving live context from the vector store.
 
-The challenge specified boundary-aware chunking, visual quality validation, and LLM cluster labeling. Independent engineering decisions cover the choice of UMAP over t-SNE, the combined use of `random_state` and `n_jobs=1` for partial UMAP determinism, output caching, and a PCA fallback for fully reproducible projections. Embeddings are drop-in compatible with Pinecone, Weaviate, and pgvector.
+The pipeline is designed to be corpus-agnostic — swap in any document and the rest runs unchanged.
 
 **Demo knowledge base:** [Netflix Culture Memo](https://jobs.netflix.com/culture)
 
@@ -29,59 +31,78 @@ The challenge specified boundary-aware chunking, visual quality validation, and 
 | 04 | **Reduce** | UMAP → 2D and 3D projections |
 | 05 | **Cluster** | KMeans (k=2) on reduced embeddings |
 | 06 | **Label** | `gpt-4o-mini` generates a thematic summary per cluster |
+| 07 | **Store** | Chunks + embeddings persisted to ChromaDB |
+| 08 | **Retrieve** | Query embedding → top-k similarity search |
+| 09 | **Generate** | `gpt-4.1-mini` answers with retrieved context injected |
+| 10 | **Chat** | Gradio `ChatInterface` for multi-turn conversation |
 
 ---
 
 ## Implementation Notes
 
-The SDS AI Challenge specified boundary-aware chunking at chunk *ends*, the chunking parameter values, visual quality validation via clustering, and LLM cluster labeling as requirements. The following documents how those requirements were implemented, and where independent engineering decisions were made on top of them.
+### Chunking
 
----
+The challenge required boundary-aware splitting at chunk ends — snapping cuts to natural language boundaries rather than fixed character offsets. The parameter values (`max_size`, `overlap`, `min_size`) were also provided as part of the spec.
 
-### Chunking — Required + Extended
-
-The challenge required boundary-aware splitting at chunk ends — snapping cuts to natural language boundaries rather than a fixed character offset. The parameter values (`max_size`, `overlap`, `min_size`) were also provided as part of the spec.
-
-**Configurable parameters (challenge-specified):**
+**Configurable parameters:**
 
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
-| `max_size` | 500 chars | Maximum chunk window |
+| `max_size` | 1,000 chars | Maximum chunk window |
 | `overlap` | 50 chars | Context carried across chunk boundaries |
-| `min_size` | 250 chars | Minimum size before merge or carry-forward |
+| `min_size` | 500 chars | Minimum size before merge or carry-forward |
 
-The implementation snaps chunk ends to paragraphs first, then sentences, then word boundaries. Chunk *starts* use a simpler word-boundary snap — this was an implementation choice rather than a spec requirement, made to avoid splitting tokens mid-word after the overlap is applied.
+The implementation snaps chunk ends to paragraphs first (`\n\n`), then sentences (`. `), then word boundaries (` `). A boundary only qualifies when the resulting chunk meets `min_size`. Chunk starts use a simpler word-boundary snap to avoid splitting tokens mid-word after the overlap is applied.
 
-Sub-minimum chunks are merged forward as a prefix into the next window rather than emitted as isolated fragments, reducing short-chunk retrieval noise at query time.
+Sub-minimum chunks are merged forward as a prefix into the next window rather than emitted as isolated fragments, which reduces short-chunk retrieval noise at query time.
 
 **Core helper functions:**
 
-- `find_natural_boundary` — tries `\n\n`, then `. `, then ` `; only cuts if resulting chunk meets `min_size`
+- `find_natural_boundary` — tries `\n\n`, then `. `, then ` `; only cuts if the resulting chunk meets `min_size`
 - `apply_boundary` — applies the cut and advances the end pointer past any mid-word position
-- `handle_small_chunk` — merges sub-minimum chunks into the previous chunk or carries them forward
+- `handle_small_chunk` — merges sub-minimum chunks into a neighbor or carries them forward as a prefix
 - `advance_start` — computes the next window start with overlap, calls `snap_to_word_start` for clean boundaries
+
+Chunking is fully deterministic — no randomness is involved. Reproducibility here comes from the algorithm itself.
 
 ---
 
-### Visual Quality Validation — Required
+### Embeddings
 
-The challenge specified validating embedding quality visually through clustering. UMAP + KMeans provides a practical sanity check before any data reaches the vector store: if the document's topics aren't meaningfully separable in embedding space, retrieval quality will suffer regardless of prompt engineering.
+Each chunk is embedded using OpenAI's `text-embedding-3-small`, producing a 1,536-dimensional dense vector. The embedding model is deterministic for fixed input, so no random seed is required at this stage. Using a pinned model string ensures consistent dimensionality across runs.
+
+```python
+response = client.embeddings.create(input=chunks, model="text-embedding-3-small")
+embeddings = [item.embedding for item in response.data]
+# Output: N × 1,536 float32 vectors
+```
+
+---
+
+### Visual Quality Validation — Cluster Visualization
+
+UMAP + KMeans provides a practical sanity check before data reaches the vector store. If the document's topics aren't meaningfully separable in embedding space, retrieval quality will suffer regardless of prompt engineering.
 
 Applied to the Netflix Culture Memo, the pipeline surfaces a clean two-cluster separation — organizational principles vs. people and culture themes.
 
-**2D UMAP projection** — static matplotlib scatter with annotated chunk indices:
+- **2D projection** — static matplotlib scatter with annotated chunk indices
+- **3D projection** — interactive Plotly view that surfaces structure the 2D projection can obscure
 
-![UMAP 2D Projection](UMAP_2D.png)
+```python
+# 2D
+reducer = umap.UMAP(n_components=2, random_state=RANDOM_STATE, n_jobs=1)
+reduced_2d = reducer.fit_transform(embedding_matrix)
 
-**3D UMAP projection** — interactive Plotly view that surfaces structure obscured in 2D:
-
-![UMAP 3D Projection](UMAP_3D.png)
+# 3D
+reducer = umap.UMAP(n_components=3, random_state=RANDOM_STATE, n_jobs=1)
+reduced_3d = reducer.fit_transform(embedding_matrix)
+```
 
 ---
 
-### LLM Cluster Labeling — Required
+### LLM Cluster Labeling
 
-Automated cluster labeling via LLM was a challenge requirement. `gpt-4o-mini` receives up to 10 representative chunks per cluster and returns a 2–3 sentence thematic summary.
+`gpt-4o-mini` receives up to 10 representative chunks per cluster and returns a 2–3 sentence thematic summary, giving human-readable labels to what the geometry surfaced.
 
 ```python
 messages=[
@@ -92,20 +113,81 @@ messages=[
 
 ---
 
-### Reproducibility — Independent Decision
+### Vector Storage — ChromaDB
 
-Reproducibility handling was not part of the challenge spec. UMAP's known non-determinism — from `pynndescent`'s approximate nearest-neighbor graph construction and floating-point variability through its optimization loop — makes consistent outputs across runs genuinely difficult.
+Chunks and their embeddings are persisted to a local ChromaDB collection. Metadata (source document, chunk index) is stored alongside each record to support filtered retrieval. The collection is wiped and rebuilt on each pipeline run to maintain a clean state during development.
 
-**UMAP over t-SNE** was a deliberate choice: UMAP better preserves global neighborhood structure at this data scale, runs faster, and has a `random_state` parameter that at least partially constrains randomness. t-SNE offers no equivalent.
+```python
+chroma_client = chromadb.PersistentClient("./chroma_db")
+collection = chroma_client.get_or_create_collection(name="netflix_culture_memo_chunks")
 
-**`random_state` + `n_jobs=1`** were set together intentionally. `random_state` alone is insufficient — UMAP's multi-threaded execution introduces non-deterministic floating-point ordering. Setting `n_jobs=1` forces single-threaded execution, which eliminates that source of variance.
+collection.add(
+    ids=[f"chunk_{i}" for i in range(len(chunks))],
+    embeddings=raw_embeddings,
+    documents=chunks,
+    metadatas=[{"source": "netflix_culture_pdf", "chunk_index": i} for i in range(len(chunks))]
+)
+```
 
-**Caching** — `reduce_to_2d_cached()` and `reduce_to_3d_cached()` save UMAP output on first run and reload on subsequent runs, so UMAP executes exactly once:
+ChromaDB's embedding format is directly compatible with Pinecone, Weaviate, and pgvector — swapping the vector store requires only changing the storage and query calls, not the upstream pipeline.
+
+---
+
+### Retrieval
+
+Queries are embedded with the same model used for chunks to guarantee vector space compatibility. The top-k most similar chunks are retrieved from ChromaDB and stitched together as context.
+
+```python
+response = client.embeddings.create(model="text-embedding-3-small", input=[query])
+query_embedding = response.data[0].embedding
+
+results = collection.query(query_embeddings=[query_embedding], n_results=8)
+context = "\n---\n".join(results["documents"][0])
+```
+
+---
+
+### RAG Chat Interface
+
+The final step surfaces retrieval in a multi-turn Gradio chat. Each user message is embedded, retrieves top-8 chunks, injects them as context into the system message, and passes the full conversation history to `gpt-4.1-mini` for generation.
+
+```python
+def response_ai(message, history):
+    # Embed the query
+    response = client.embeddings.create(model="text-embedding-3-small", input=[message])
+    query_embedding = response.data[0].embedding
+
+    # Retrieve top-8 chunks
+    results = collection.query(query_embeddings=[query_embedding], n_results=8)
+    context = "\n---\n".join(results["documents"][0])
+
+    # Augment system message with retrieved context
+    system_message_enhanced = system_message + "\n\nContext:\n" + context
+
+    # Generate with full conversation history
+    messages = [{"role": "system", "content": system_message_enhanced}] + history + [{"role": "user", "content": message}]
+    response = client.chat.completions.create(model="gpt-4.1-mini", messages=messages)
+    return response.choices[0].message.content
+
+gr.ChatInterface(fn=response_ai).launch(inbrowser=True)
+```
+
+---
+
+### Reproducibility
+
+Every source of randomness is seeded with `RANDOM_STATE = 42` via a `seed_all()` function that covers Python's `random`, NumPy, and optionally PyTorch if installed.
+
+**UMAP over t-SNE** was a deliberate choice: UMAP better preserves global neighborhood structure at this data scale, runs faster, and exposes a `random_state` parameter. `random_state` + `n_jobs=1` together partially constrain UMAP's output — `random_state` seeds the internal PRNG; `n_jobs=1` disables multi-threaded execution, which eliminates non-deterministic floating-point ordering from thread scheduling.
+
+Even with both set, UMAP can still produce axially shifted or reflected projections run-to-run due to `pynndescent`'s internal randomness and version-sensitivity. Two mitigation strategies are provided:
+
+**Caching** — run UMAP once, save to `.npy`, reload on subsequent runs:
 
 ```python
 CACHE_2D = Path("reduced_2d.npy")
 
-def reduce_to_2d_cached(embedding_matrix: np.ndarray, seed: int = RANDOM_STATE) -> np.ndarray:
+def reduce_to_2d_cached(embedding_matrix, seed=RANDOM_STATE):
     if CACHE_2D.exists():
         return np.load(CACHE_2D)
     reduced = umap.UMAP(n_components=2, random_state=seed, n_jobs=1).fit_transform(embedding_matrix)
@@ -113,54 +195,16 @@ def reduce_to_2d_cached(embedding_matrix: np.ndarray, seed: int = RANDOM_STATE) 
     return reduced
 ```
 
-> **Note:** Delete `.npy` cache files whenever chunks or embeddings change.
+> Delete `.npy` files whenever chunks or embeddings change.
 
-**PCA fallback** — added as a strictly deterministic alternative for cases where run-to-run plot identity matters more than visual cluster separation. PCA is linear and has no stochastic components, so output is identical across every run.
+**PCA fallback** — strictly deterministic, no disk I/O required, at the cost of less pronounced visual cluster separation:
 
 ```python
 from sklearn.decomposition import PCA
 
-def reduce_to_2d_pca(embedding_matrix: np.ndarray, seed: int = RANDOM_STATE) -> np.ndarray:
+def reduce_to_2d_pca(embedding_matrix, seed=RANDOM_STATE):
     return PCA(n_components=2, random_state=seed).fit_transform(embedding_matrix)
 ```
-
----
-
-## Implementation Reference
-
-**Embedding:**
-
-```python
-response = client.embeddings.create(
-    input=chunks,
-    model="text-embedding-3-small"
-)
-embeddings = [item.embedding for item in response.data]
-# Output: N × 1,536 float vectors
-```
-
-**Dimensionality reduction:**
-
-```python
-# 2D — matplotlib scatter with per-point index labels
-reducer = umap.UMAP(n_components=2, random_state=RANDOM_STATE, n_jobs=1)
-reduced_2d = reducer.fit_transform(embedding_matrix)
-
-# 3D — Plotly Scatter3d with one trace per cluster
-reducer = umap.UMAP(n_components=3, random_state=RANDOM_STATE, n_jobs=1)
-reduced_3d = reducer.fit_transform(embedding_matrix)
-```
-
-`n_jobs=1` disables parallelism whose non-deterministic thread scheduling would otherwise cause floating-point differences between runs.
-
-**KMeans clustering:**
-
-```python
-kmeans = KMeans(n_clusters=2, random_state=RANDOM_STATE, n_init=10)
-labels = kmeans.fit_predict(reduced)
-```
-
-`n_init=10` runs 10 independent centroid initializations to guard against local minima.
 
 ---
 
@@ -170,12 +214,14 @@ labels = kmeans.fit_predict(reduced)
 |-----------|--------|-----------|
 | Embeddings | `text-embedding-3-small` | 1,536-dim, strong semantic fidelity at low cost |
 | Cluster labeling | `gpt-4o-mini` | Short summarization task; low latency and cost |
+| Chat generation | `gpt-4.1-mini` | Capable and cost-efficient for RAG Q&A |
 | Dimensionality reduction | UMAP | Preserves local neighborhood structure better than PCA or t-SNE at this scale |
 | Deterministic reduction | PCA | Strictly deterministic fallback when run-to-run plot identity matters |
 | Clustering | KMeans (scikit-learn) | Interpretable and fast; appropriate for known k |
+| Vector store | ChromaDB (persistent) | Local, zero-infrastructure vector DB; embeddings are drop-in compatible with Pinecone, Weaviate, and pgvector |
 | Visualization (2D) | matplotlib | Static cluster inspection with annotated chunk indices |
 | Visualization (3D) | Plotly `Scatter3d` | Interactive and rotatable — surfaces structure 2D can obscure |
-| Vector DB targets | Pinecone / Weaviate / pgvector | Embeddings are drop-in compatible; no modification required |
+| Chat UI | Gradio `ChatInterface` | Minimal-overhead multi-turn interface; shareable with `share=True` |
 
 ---
 
@@ -184,7 +230,7 @@ labels = kmeans.fit_predict(reduced)
 **1. Install dependencies**
 
 ```bash
-pip install openai python-dotenv numpy umap-learn scikit-learn plotly matplotlib
+pip install openai python-dotenv numpy umap-learn scikit-learn matplotlib plotly chromadb gradio
 ```
 
 **2. Configure API access**
@@ -196,22 +242,22 @@ echo "OPENAI_API_KEY=your_key_here" > .env
 **3. Run the notebook**
 
 ```bash
-jupyter notebook rag_pipeline_reproducible_umap_kmeans_2d3d_plots.ipynb
+jupyter notebook RAG-scratchpad3.ipynb
 ```
 
-Execute all cells top to bottom. UMAP output is cached to `reduced_2d.npy` and `reduced_3d.npy` on first run.
+Execute all cells top to bottom. ChromaDB stores data in `./chroma_db/`. UMAP output can be cached to `reduced_2d.npy` and `reduced_3d.npy` using the cached variants to avoid recomputation during development. The Gradio chat interface launches automatically in the final cell.
 
 ---
 
-## UMAP Reproducibility
+## UMAP Reproducibility Reference
 
-Even with `random_state=42` and `n_jobs=1`, UMAP can produce axially shifted or reflected outputs between runs due to:
+Even with `random_state=42` and `n_jobs=1`, UMAP can produce shifted or reflected outputs between runs because:
 
 1. `pynndescent` (UMAP's nearest-neighbor backend) has internal randomness not fully controlled by UMAP's `random_state`
 2. Floating-point non-determinism compounds through UMAP's optimization loop
 3. The degree of determinism varies by `pynndescent` version
 
-**Recommended:** use `reduce_to_2d_cached()` / `reduce_to_3d_cached()` so UMAP runs once and subsequent runs reload from disk. For guaranteed determinism with zero disk I/O, use `reduce_to_2d_pca()` / `reduce_to_3d_pca()` — at the cost of less pronounced cluster separation.
+**Recommended:** use `reduce_to_2d_cached()` / `reduce_to_3d_cached()` so UMAP runs once per corpus and subsequent runs reload from disk. For guaranteed run-to-run identity with no disk I/O, use `reduce_to_2d_pca()` / `reduce_to_3d_pca()` — at the cost of less pronounced cluster separation.
 
 ---
 
@@ -219,10 +265,10 @@ Even with `random_state=42` and `n_jobs=1`, UMAP can produce axially shifted or 
 
 | Role | What this demonstrates |
 |------|------------------------|
-| **AI / Applied ML Engineer** | UMAP vs. t-SNE tradeoff at this data scale; diagnosing and mitigating UMAP non-determinism via `random_state` + `n_jobs=1`; caching strategy for reproducible projections; PCA as a strictly deterministic fallback |
-| **AI Product Engineer** | End-to-end RAG prototype on a real knowledge base; reproducibility vs. visual fidelity tradeoffs; embedding architecture compatible with Pinecone, Weaviate, and pgvector without modification |
-| **LLM / Agent Engineer** | Multi-step pipeline with LLM calls at defined stages; `gpt-4o-mini` model selection for cost/latency appropriateness on a short summarization task |
-| **Forward Deployed / Generalist Engineer** | Corpus-agnostic pipeline; drop-in vector store compatibility; no customer-specific modifications required |
+| **AI / Applied ML Engineer** | UMAP vs. t-SNE tradeoff at this data scale; mitigating UMAP non-determinism via `random_state` + `n_jobs=1`, caching, and PCA fallback; embedding pipeline architecture compatible with any production vector store |
+| **AI Product Engineer** | End-to-end RAG prototype on a real knowledge base; visual embedding validation before production; vector store portability (ChromaDB → Pinecone / Weaviate / pgvector without upstream changes) |
+| **LLM / Agent Engineer** | Multi-step pipeline with LLM calls at defined stages; context assembly from retrieved chunks; multi-turn conversation with injected retrieval context; model selection for cost/latency at each stage |
+| **Forward Deployed / Generalist Engineer** | Corpus-agnostic design — swap the document, re-run the cells; drop-in vector store compatibility; Gradio interface requires no frontend work to demo to stakeholders |
 
 ---
 
