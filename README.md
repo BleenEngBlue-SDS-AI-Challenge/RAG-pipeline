@@ -1,5 +1,7 @@
 # Reproducible RAG Pipeline
 
+> Created for the [SuperDataScience AI Challenge](https://www.skool.com/ai-challenge)
+
 > **chunk → embed → reduce → cluster → visualize → store → retrieve**
 
 A production-minded, fully reproducible Retrieval-Augmented Generation pipeline built from scratch in Python. Every stage of the pipeline is seeded with `RANDOM_STATE = 42` and architected around single-responsibility functions — making it easy to test, swap, and extend.
@@ -198,6 +200,12 @@ This architecture is intentionally modular. Common extension points:
 - **Swap the embedder** — any embedding model returning a float vector works; just match dimensions at retrieval time
 - **Increase clusters** — adjust `n_clusters` in `cluster_embeddings()` for larger documents
 - **Add a generation step** — pass retrieved chunks as context to a chat completion call to close the full RAG loop
+
+---
+
+## Attribution
+
+This project was created for the **[SuperDataScience AI Challenge](https://www.skool.com/ai-challenge)**.
 
 ---
 
