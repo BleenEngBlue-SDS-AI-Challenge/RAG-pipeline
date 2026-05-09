@@ -98,7 +98,10 @@ All stochastic components are seeded through a single `seed_all(RANDOM_STATE)` c
 | `reduce_to_2d_pca()` / `reduce_to_3d_pca()` | Strictly deterministic; sacrifices some cluster visual separation |
 
 ### Natural Boundary Chunking
-Rather than hard-splitting on character count, the chunker respects text structure. It searches backward from the window boundary for the highest-priority natural break:
+Rather than hard-splitting on character count, the chunker respects text structure at both the start and the end of a chunk. It searches backward from the right window boundary for 
+the highest-priority natural break (part of AI Challenge), and forward from the left window 
+boundary to the nearest space or text end, then skips the space to start with the next letter
+character:
 
 1. Paragraph boundary (`\n\n`)
 2. Sentence boundary (`. `)
