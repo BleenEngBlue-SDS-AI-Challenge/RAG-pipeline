@@ -208,7 +208,7 @@ This architecture is intentionally modular. Common extension points:
 
 ## Attribution
 
-This project was created for the **[SuperDataScience AI Challenge](https://www.skool.com/ai-challenge)**.
+This project was created for the **[SuperDataScience AI Challenge](https://www.skool.com/ai-challenge/about)**.
 
 ---
 
