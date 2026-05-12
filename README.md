@@ -1,6 +1,6 @@
 # Reproducible RAG Pipeline
 
-> Created for the [SuperDataScience AI Challenge](https://www.skool.com/ai-challenge)
+> Created for the [SuperDataScience AI Challenge](https://www.skool.com/ai-challenge/about)
 
 > **chunk → embed → reduce → cluster → visualize → store → retrieve**
 
