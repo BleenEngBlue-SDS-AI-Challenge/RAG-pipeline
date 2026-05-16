@@ -211,7 +211,3 @@ This architecture is intentionally modular. Common extension points:
 This project was created for the **[SuperDataScience AI Challenge](https://www.skool.com/ai-challenge/about)**.
 
 ---
-
-## License
-
-MIT
