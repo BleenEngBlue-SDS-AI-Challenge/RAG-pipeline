@@ -4,7 +4,7 @@
 
 > **chunk → embed → reduce → cluster → visualize → store → retrieve**
 
-A production-minded, fully reproducible Retrieval-Augmented Generation pipeline built from scratch in Python. Every stage of the pipeline is seeded with `RANDOM_STATE = 42` and architected around single-responsibility functions — making it easy to test, swap, and extend.
+A production-minded, reproducible Retrieval-Augmented Generation pipeline built from scratch in Python. Every stage of the pipeline is seeded with `RANDOM_STATE = 42` and architected around single-responsibility functions — making it easy to test, swap, and extend.
 
 ---
 
