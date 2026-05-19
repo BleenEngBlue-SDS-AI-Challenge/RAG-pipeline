@@ -98,16 +98,42 @@ All stochastic components are seeded through a single `seed_all(RANDOM_STATE)` c
 | `reduce_to_2d_pca()` / `reduce_to_3d_pca()` | Strictly deterministic; sacrifices some cluster visual separation |
 
 ### Natural Boundary Chunking
-Rather than hard-splitting on character count, the chunker respects text structure at both the start and the end of a chunk. It searches backward from the right window boundary for 
-the highest-priority natural break (part of AI Challenge), and forward from the left window 
-boundary to the nearest space or text end, then skips the space to start with the next letter
-character:
+Rather than hard-splitting on character count, the chunker respects text structure at both the start and the end of a chunk. It searches backward from the right window boundary for the highest-priority natural break (part of AI Challenge), and forward from the left window boundary to the nearest space or text end, then skips the space to start with the next letter character:
 
 1. Paragraph boundary (`\n\n`)
 2. Sentence boundary (`. `)
 3. Word boundary (` `)
 
 Small chunks below `min_size` are merged with neighbors rather than emitted as orphans.
+
+### Dimensionality Reduction: Why UMAP
+
+For exploratory data analysis and sanity checks, **UMAP** is the primary choice in this pipeline. Here's how it compares to the alternatives:
+
+| | PCA | t-SNE | UMAP |
+|---|---|---|---|
+| **Speed** | ⚡⚡⚡ Fastest | 🐢 Slowest | ⚡⚡ Fast |
+| **Global structure** | ✅ Preserves well | ❌ Poor | ✅ Good |
+| **Local structure** | ⚠️ Limited | ✅ Excellent | ✅ Excellent |
+| **Scalability** | ✅ Large datasets | ❌ Struggles >10k rows | ✅ Handles large data |
+| **Reproducibility** | ✅ Deterministic | ⚠️ Stochastic | ⚠️ Stochastic (seedable) |
+
+UMAP wins for this use case because it preserves *both* local cluster structure and global relationships between clusters — giving a more truthful picture of the embedding space than either alternative. It's also fast enough to iterate on during exploration, and scales to real-world dataset sizes where t-SNE becomes impractical.
+
+**PCA's limitation:** Because PCA projects data onto directions of greatest linear variance, any structure that doesn't align with those principal components is discarded. Non-linear relationships — common in text embeddings — are essentially invisible to PCA. "Most variance" is not the same as "most meaningful structure," and subtle but important patterns in lower-variance directions can be silently dropped.
+
+**t-SNE's limitation:** t-SNE optimizes for local neighborhood relationships, which can smear points across the embedding rather than pulling them into tight, well-separated groups. Inter-cluster distances are also largely meaningless — how far apart two clusters appear tells you little about how semantically different they actually are.
+
+#### PCA as a Preprocessor
+
+Despite its limitations as a standalone visualization tool, PCA is used in this pipeline as a deterministic fallback and can be valuable as a preprocessing step before UMAP:
+
+- **Noise reduction** — PCA concentrates meaningful signal into the top components, so UMAP operates on cleaner input.
+- **Speed** — Reducing to 30–50 PCA components first can dramatically cut UMAP's runtime with minimal loss of structure.
+- **Determinism** — PCA's closed-form linear transformation gives UMAP a stable, reproducible starting point, making runs more consistent and results easier to compare.
+- **Curse of dimensionality** — Distance metrics become unreliable in very high dimensions. PCA compresses the data into a subspace where distances are more meaningful, giving UMAP a better foundation for constructing its neighborhood graph.
+
+A typical production pipeline looks like: **PCA to ~30–50 dims → UMAP to 2D**, balancing determinism, speed, and expressive power.
 
 ### UMAP Determinism — Known Limitation
 Even with `random_state=42` and `n_jobs=1`, UMAP can produce axially-shifted or reflected projections across runs. This is a known upstream issue caused by non-determinism in `pynndescent` (UMAP's ANN backend) and floating-point variability in the optimization loop. The caching strategy is the recommended mitigation.
@@ -203,11 +229,10 @@ This architecture is intentionally modular. Common extension points:
 - **Swap the embedder** — any embedding model returning a float vector works; just match dimensions at retrieval time
 - **Increase clusters** — adjust `n_clusters` in `cluster_embeddings()` for larger documents
 - **Add a generation step** — pass retrieved chunks as context to a chat completion call to close the full RAG loop
+- **Add PCA preprocessing** — prepend a PCA reduction to 30–50 dims before UMAP for faster, more consistent results on larger corpora
 
 ---
 
 ## Attribution
 
 This project was created for the **[SuperDataScience AI Challenge](https://www.skool.com/ai-challenge/about)**.
-
----
