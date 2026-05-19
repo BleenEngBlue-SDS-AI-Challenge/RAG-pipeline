@@ -14,7 +14,7 @@ This project walks end-to-end through the core mechanics of a RAG system:
 
 - **Custom chunking** with natural boundary detection (paragraph → sentence → word)
 - **Embedding** via OpenAI's `text-embedding-3-small`
-- **Dimensionality reduction** via UMAP (2D & 3D) and PCA (strictly deterministic fallback)
+- **Dimensionality reduction** via UMAP (2D & 3D) or PCA (strictly deterministic fallback)
 - **Semantic clustering** via KMeans with LLM-generated cluster descriptions
 - **Interactive visualization** with matplotlib (2D) and Plotly (3D)
 - **Vector storage and retrieval** via ChromaDB with persistent storage
@@ -86,8 +86,8 @@ The interactive 3D view (rendered here as a static export) adds a third UMAP dim
 
 ## Key Design Decisions
 
-### Single-Responsibility Functions
-Every function does exactly one thing. Chunking, embedding, reduction, clustering, and storage are fully decoupled — making each stage independently testable and replaceable.
+### Single-Responsibility Functions for Modularity
+Every function does exactly one thing. Chunking, embedding, reduction, clustering, and storage are fully decoupled — making each stage independently testable and swappable.
 
 ### Reproducibility-First
 All stochastic components are seeded through a single `seed_all(RANDOM_STATE)` call at pipeline entry. The project documents exactly *where* determinism breaks down (UMAP's `pynndescent` backend) and provides two explicit escape hatches:
