@@ -126,14 +126,14 @@ UMAP wins for this use case because it preserves *both* local cluster structure 
 
 #### PCA as a Preprocessor
 
-Despite its limitations as a standalone visualization tool, PCA is used in this pipeline as a deterministic fallback and can be valuable as a preprocessing step before UMAP:
+Despite its limitations as a standalone visualization tool, PCA can be used in this pipeline as a deterministic fallback and can be valuable as a preprocessing step before UMAP when data has high dimensionality (e.g., 10,000+ dimensions):
 
 - **Noise reduction** — PCA concentrates meaningful signal into the top components, so UMAP operates on cleaner input.
 - **Speed** — Reducing to 30–50 PCA components first can dramatically cut UMAP's runtime with minimal loss of structure.
 - **Determinism** — PCA's closed-form linear transformation gives UMAP a stable, reproducible starting point, making runs more consistent and results easier to compare.
 - **Curse of dimensionality** — Distance metrics become unreliable in very high dimensions. PCA compresses the data into a subspace where distances are more meaningful, giving UMAP a better foundation for constructing its neighborhood graph.
 
-A typical production pipeline looks like: **PCA to ~30–50 dims → UMAP to 2D**, balancing determinism, speed, and expressive power.
+A typical production pipeline looks like: **PCA to ~30–50 dims → UMAP to 2D**, balancing determinism, speed, and expressive power. The number of dimensions to set for PCA is optimized using an elbow/scree plot.
 
 ### UMAP Determinism — Known Limitation
 Even with `random_state=42` and `n_jobs=1`, UMAP can produce axially-shifted or reflected projections across runs. This is a known upstream issue caused by non-determinism in `pynndescent` (UMAP's ANN backend) and floating-point variability in the optimization loop. The caching strategy is the recommended mitigation.
