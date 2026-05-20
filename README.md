@@ -118,7 +118,7 @@ For exploratory data analysis and sanity checks, **UMAP** is the primary choice 
 | **Scalability** | ✅ Large datasets | ❌ Struggles >10k rows | ✅ Handles large data |
 | **Reproducibility** | ✅ Deterministic | ⚠️ Stochastic | ⚠️ Stochastic (seedable) |
 
-UMAP wins for this use case because it preserves *both* local cluster structure and global relationships between clusters — giving a more truthful picture of the embedding space than either alternative. It's also fast enough to iterate on during exploration, and scales to real-world dataset sizes where t-SNE becomes impractical.
+UMAP wins for this use case because it preserves *both* local cluster structure and global relationships *between clusters* — giving a more truthful picture of the embedding space than either alternative. It's also fast enough to iterate on during exploration, and scales to real-world dataset sizes where t-SNE becomes impractical.
 
 **PCA's limitation:** Because PCA projects data onto directions of greatest linear variance, any structure that doesn't align with those principal components is discarded. Non-linear relationships — common in text embeddings — are essentially invisible to PCA. "Most variance" is not the same as "most meaningful structure," and subtle but important patterns in lower-variance directions can be silently dropped.
 
