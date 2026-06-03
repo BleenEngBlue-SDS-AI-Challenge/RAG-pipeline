@@ -12,7 +12,7 @@ Every stage is seeded with `RANDOM_STATE = 42` and built around single-responsib
 
 This project shows deep understanding of a RAG pipeline from the inside out — with custom chunking, a reproducibility-first engineering approach, and documented tradeoffs at every stage. Built as part of the SuperDataScience AI Challenge, the pipeline covers the full stack from raw text to semantic retrieval:
 
-- **Custom boundary-aware chunking** that respects paragraph → sentence → word structure instead of hard-splitting on character count
+- **Custom boundary-aware chunking** that respects paragraph → sentence → word structure at the end of a chunk and word structure at the beginning of a chunk instead of hard-splitting on character count
 - **OpenAI embeddings** (`text-embedding-3-small`) with a clean abstraction that makes the embedding model swappable in one line
 - **UMAP dimensionality reduction** in both 2D and 3D, with a documented understanding of *where* determinism breaks down and two explicit mitigation strategies
 - **Semantic clustering** via seeded KMeans, with LLM-generated cluster descriptions from `gpt-4o-mini`
