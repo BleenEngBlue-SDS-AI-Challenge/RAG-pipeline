@@ -1,4 +1,4 @@
-# RAG from Scratch
+# Reproducible RAG
 
 **A production-minded Retrieval-Augmented Generation system built from scratch in Python — chunk → embed → reduce → cluster → visualize → store → retrieve.**
 
